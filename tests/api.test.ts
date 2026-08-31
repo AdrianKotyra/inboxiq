@@ -36,6 +36,113 @@ describe("InboxIQ API", () => {
     expect(leads.body).toEqual([]);
     expect(await prisma.lead.count()).toBe(0);
   });
+  it("creates a new lead", async () => {
+  const response = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 30,
+      material: "Oak",
+      budget: 50000,
+    });
+
+  expect(response.status).toBe(201);
+  expect(response.body).toEqual(
+    expect.objectContaining({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 30,
+      material: "Oak",
+      budget: 50000,
+      status: "NEW",
+    }),
+  );
+
+  expect(response.body.id).toEqual(expect.any(String));
+  expect(response.body.createdAt).toEqual(expect.any(String));
+});
+
+it("rejects invalid lead data", async () => {
+  const emptyProduct = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "   ",
+      quantity: 30,
+    });
+
+  const invalidQuantity = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 1.5,
+    });
+
+  const negativeBudget = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 30,
+      budget: -100,
+    });
+
+  expect(emptyProduct.status).toBe(400);
+  expect(invalidQuantity.status).toBe(400);
+  expect(negativeBudget.status).toBe(400);
+});
+
+it("rejects a lead with an unknown source message", async () => {
+  const response = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "does-not-exist",
+      product: "Desk",
+      quantity: 30,
+    });
+
+  expect(response.status).toBe(404);
+});
+
+it("always creates leads with NEW status", async () => {
+  const response = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 30,
+      status: "CONTACTED",
+    });
+
+  expect(response.status).toBe(201);
+  expect(response.body.status).toBe("NEW");
+});
+
+it("allows multiple leads for the same message", async () => {
+  const first = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Desk",
+      quantity: 10,
+    });
+
+  const second = await request(app)
+    .post("/api/leads")
+    .send({
+      sourceMessageId: "message-perfect",
+      product: "Chair",
+      quantity: 20,
+    });
+
+  expect(first.status).toBe(201);
+  expect(second.status).toBe(201);
+  expect(first.body.sourceMessageId).toBe("message-perfect");
+  expect(second.body.sourceMessageId).toBe("message-perfect");
+  expect(first.body.id).not.toBe(second.body.id);
+  });
 
   it("returns a stable error for malformed API JSON", async () => {
     const response = await request(app)

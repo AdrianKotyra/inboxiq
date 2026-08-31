@@ -3,11 +3,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractForMessage, extractRequestSchema } from "./ai.js";
 import { prisma } from "./db.js";
+import { z } from "zod";
 
 const app = express();
 const clientDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "client");
 
 app.use(express.json());
+
+const createLeadSchema = z.object({
+  sourceMessageId: z.string().min(1),
+  product: z.string().trim().min(1),
+  quantity: z.number().int().positive(),
+  material: z.string().nullable().optional(),
+  budget: z.number().finite().nonnegative().nullable().optional(),
+});
 
 app.use((error: unknown, request: Request, response: Response, next: NextFunction) => {
   if (
@@ -69,7 +78,47 @@ app.get("/api/leads", async (_request, response, next) => {
     next(error);
   }
 });
+app.post("/api/leads", async (request, response, next) => {
+  try {
+    const parsed = createLeadSchema.safeParse(request.body);
 
+    if (!parsed.success) {
+      response.status(400).json({
+        error: "invalid_request",
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const message = await prisma.message.findUnique({
+      where: { id: parsed.data.sourceMessageId },
+    });
+
+    if (!message) {
+      response.status(404).json({ error: "message_not_found" });
+      return;
+    }
+
+    const lead = await prisma.lead.create({
+      data: {
+        id: crypto.randomUUID(),
+        sourceMessageId: parsed.data.sourceMessageId,
+        product: parsed.data.product,
+        quantity: parsed.data.quantity,
+        material: parsed.data.material ?? null,
+        budget: parsed.data.budget ?? null,
+        status: "NEW",
+      },
+    });
+
+    response.status(201).json({
+      ...lead,
+      createdAt: lead.createdAt.toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post("/api/ai/extract", async (request, response, next) => {
   try {
     const parsed = extractRequestSchema.safeParse(request.body);
